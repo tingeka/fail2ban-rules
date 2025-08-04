@@ -1,34 +1,81 @@
 #!/bin/bash
 
-# Cloudflare Fail2ban Deployment Script with Overwrite Prompt
+set -u
 
-# The base URL for the configuration files on GitHub
+# === Setup Logging ===
+LOG_FILE="/var/log/fail2ban-deploy.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "=== Fail2Ban deployment started at $(date) ==="
+
+# === Constants ===
 REPO_BASE="https://raw.githubusercontent.com/tingeka/fail2ban-rules/main"
-
-# The directory to store backups, timestamped for uniqueness
 BACKUP_DIR="/etc/fail2ban/backup-$(date +%Y%m%d-%H%M%S)"
 
-# --- Function to download files with a user prompt and set permissions ---
+# === Defaults ===
+SKIP_PROMPT=false
+PROFILE=""
+ZONE_ID=""
+API_TOKEN=""
+
+# === Argument Parsing ===
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --yes|-y)
+            SKIP_PROMPT=true
+            shift
+            ;;
+        --profile)
+            PROFILE="$2"
+            shift 2
+            ;;
+        --zone-id)
+            ZONE_ID="$2"
+            shift 2
+            ;;
+        --api-token)
+            API_TOKEN="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 --profile <name> --zone-id <id> --api-token <token> [--yes]"
+            exit 1
+            ;;
+    esac
+done
+
+# === Validation ===
+if [[ -z "$PROFILE" ]]; then
+    echo "✗ Error: --profile is required."
+    exit 1
+fi
+
+if [[ -z "$ZONE_ID" || -z "$API_TOKEN" ]]; then
+    echo "✗ Error: --zone-id and --api-token are required with profile '$PROFILE'."
+    echo "→ You must either:"
+    echo "   1. Provide them via CLI: --zone-id ... --api-token ..."
+    echo "   2. Manually update the placeholders in: /etc/fail2ban/jail.d/${PROFILE}.conf"
+    exit 1
+fi
+
+# === Function: Download with optional prompt ===
 download_file() {
     local file_path=$1
     local repo_url=$2
     local permissions=$3
 
-    # Check if the file exists and prompt the user
-    if [ -f "$file_path" ]; then
+    if [ -f "$file_path" ] && [ "$SKIP_PROMPT" = false ]; then
         read -p "File '$file_path' already exists. Overwrite? (y/n): " -n 1 -r
-        echo # Move to a new line
+        echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
             echo "Skipping '$file_path'..."
             return 0
         fi
     fi
 
-    # Download the file
     echo "Downloading $file_path..."
-    if curl -s "$repo_url" -o "$file_path"; then
+    if curl -fsSL --retry 3 --retry-connrefused "$repo_url" -o "$file_path"; then
         echo "✓ Downloaded $file_path"
-        # Set permissions immediately after a successful download
         if [ -n "$permissions" ]; then
             chmod "$permissions" "$file_path" 2>/dev/null || true
             echo "✓ Set permissions to $permissions for $file_path"
@@ -39,11 +86,7 @@ download_file() {
     fi
 }
 
-# --- Script Execution ---
-echo "Cloudflare Fail2ban Configuration Deployment"
-echo "============================================="
-
-# Create backup
+# === Backup Existing Config ===
 echo "Creating backup..."
 mkdir -p "$BACKUP_DIR"
 cp -r /etc/fail2ban/jail.d/* "$BACKUP_DIR/" 2>/dev/null || true
@@ -51,28 +94,55 @@ cp -r /etc/fail2ban/filter.d/* "$BACKUP_DIR/" 2>/dev/null || true
 cp -r /etc/fail2ban/action.d/* "$BACKUP_DIR/" 2>/dev/null || true
 echo "✓ Backup created at: $BACKUP_DIR"
 
-# Download files with prompt
-echo -e "\nDownloading configuration files..."
+# === Download Profile-Specific Files ===
+echo -e "\nApplying profile: $PROFILE"
 
-# Action
-# The third argument is the permission to set
+case "$PROFILE" in
+    "enfant")
+        download_file "/etc/fail2ban/filter.d/et-wp-hard.conf" "$REPO_BASE/filter.d/et-wp-hard.conf" "644"
+        download_file "/etc/fail2ban/filter.d/et-wp-soft.conf" "$REPO_BASE/filter.d/et-wp-soft.conf" "644"
+        download_file "/etc/fail2ban/filter.d/et-wp-extra.conf" "$REPO_BASE/filter.d/et-wp-extra.conf" "644"
+        download_file "/etc/fail2ban/jail.d/enfant.conf" "$REPO_BASE/jail.d/enfant.conf" "640"
+        JAIL_FILE="/etc/fail2ban/jail.d/enfant.conf"
+        ;;
+    "posidonia")
+        download_file "/etc/fail2ban/filter.d/rp-wp-hard.conf" "$REPO_BASE/filter.d/rp-wp-hard.conf" "644"
+        download_file "/etc/fail2ban/filter.d/rp-wp-soft.conf" "$REPO_BASE/filter.d/rp-wp-soft.conf" "644"
+        download_file "/etc/fail2ban/filter.d/rp-wp-extra.conf" "$REPO_BASE/filter.d/rp-wp-extra.conf" "644"
+        download_file "/etc/fail2ban/jail.d/posidonia.conf" "$REPO_BASE/jail.d/posidonia.conf" "640"
+        JAIL_FILE="/etc/fail2ban/jail.d/posidonia.conf"
+        ;;
+    *)
+        echo "✗ Error: Unknown profile '$PROFILE'"
+        exit 1
+        ;;
+esac
+
+# === Download Common Files ===
+echo "Downloading common files..."
 download_file "/etc/fail2ban/action.d/cloudflare-zone.conf" "$REPO_BASE/action.d/cloudflare-zone.conf" "644"
 
-# Custom site-specific filters
-download_file "/etc/fail2ban/filter.d/et-wp-hard.conf" "$REPO_BASE/filter.d/et-wp-hard.conf" "644"
-download_file "/etc/fail2ban/filter.d/et-wp-soft.conf" "$REPO_BASE/filter.d/et-wp-soft.conf" "644"
-download_file "/etc/fail2ban/filter.d/et-wp-extra.conf" "$REPO_BASE/filter.d/et-wp-extra.conf" "644"
-download_file "/etc/fail2ban/filter.d/rp-wp-hard.conf" "$REPO_BASE/filter.d/rp-wp-hard.conf" "644"
-download_file "/etc/fail2ban/filter.d/rp-wp-soft.conf" "$REPO_BASE/filter.d/rp-wp-soft.conf" "644"
-download_file "/etc/fail2ban/filter.d/rp-wp-extra.conf" "$REPO_BASE/filter.d/rp-wp-extra.conf" "644"
+# === Replace Placeholders ===
+if [[ -f "$JAIL_FILE" ]]; then
+    echo "Injecting zone ID and token into $JAIL_FILE..."
+    sed -i "s|{{ZONE_ID}}|$ZONE_ID|g" "$JAIL_FILE"
+    sed -i "s|{{API_TOKEN}}|$API_TOKEN|g" "$JAIL_FILE"
+    echo "✓ Injected zone ID and API token"
+else
+    echo "✗ Jail file not found: $JAIL_FILE"
+    exit 1
+fi
 
-# Jails
-download_file "/etc/fail2ban/jail.d/enfant.conf" "$REPO_BASE/jail.d/enfant.conf" "640"
-download_file "/etc/fail2ban/jail.d/posidonia.conf" "$REPO_BASE/jail.d/posidonia.conf" "640"
-
-echo -e "\n✓ Deployment complete!"
-echo "⚠ Remember to update zone IDs and API tokens in jail files."
-echo "⚠ Run 'fail2ban-client -d' to check syntax."
-echo "⚠ Run 'fail2ban-client -d && service fail2ban restart' to check syntax and restart fail2ban."
-
-# --- End of Script ---
+# === Final Instructions ===
+echo -e "\n✓ Deployment complete for profile '$PROFILE'"
+echo "▶ Zone ID: $ZONE_ID"
+echo "▶ API Token: [REDACTED]"
+echo
+echo "⚠ You may want to verify the config:"
+echo "   fail2ban-client -d"
+echo
+echo "▶ To apply changes:"
+echo "   systemctl restart fail2ban"
+echo
+echo "▶ To verify status:"
+echo "   systemctl status fail2ban"

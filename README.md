@@ -39,55 +39,70 @@ You can use `curl` or `wget` to run the script:
 **Using `curl`**
 
 ```bash
-curl -s [https://raw.githubusercontent.com/tingeka/fail2ban-rules/main/deploy.sh](https://raw.githubusercontent.com/tingeka/fail2ban-rules/main/deploy.sh) | sudo bash -s --
+curl -s https://raw.githubusercontent.com/tingeka/fail2ban-rules/main/deploy.sh | sudo bash -s -- \
+  --profile <enfant|posidonia> \
+  --zone-id <CLOUDFLARE_ZONE_ID> \
+  --api-token <CLOUDFLARE_API_TOKEN> \
+  [--yes]
 ```
 
 **Using `wget`**
 
 ```bash
-wget -qO- [https://raw.githubusercontent.com/tingeka/fail2ban-rules/main/deploy.sh](https://raw.githubusercontent.com/tingeka/fail2ban-rules/main/deploy.sh) | sudo bash -s --
+wget -qO- https://raw.githubusercontent.com/tingeka/fail2ban-rules/main/deploy.sh | sudo bash -s -- \
+  --profile <enfant|posidonia> \
+  --zone-id <CLOUDFLARE_ZONE_ID> \
+  --api-token <CLOUDFLARE_API_TOKEN> \
+  [--yes]
 ```
 
-> **Note:** The `-s` flag tells `bash` to read commands from standard input, and the `--` flag marks the end of command-line options. This is a more explicit and secure way to execute the piped script.
+> **Note:**
+> - The `-s` flag tells `bash` to read commands from standard input.
+> - The `--` flag marks the end of command-line options. This is a more explicit and secure way to execute the piped script.
+> - The `--profile` flag is mandatory.
+> - The `--zone-id` and `--api-token` flags must be valid Cloudflare credentials.
+> - The `--yes` flag skips confirmation prompts.
 
 ### Script Functionality
 
-The `deploy.sh` script performs the following actions:
+The `deploy.sh` script performs these actions **in order**:
 
-1.  **Creates a Backup**: It creates a timestamped backup directory (e.g., `/etc/fail2ban/backup-20250804-174445`) and copies any existing `jail.d`, `filter.d`, and `action.d` files into it.
+1. **Validates Inputs**:  
+   - Errors if `--profile`, `--zone-id`, or `--api-token` are missing.  
+   - Ensures Fail2Ban is installed.
 
-2.  **Downloads Files**: It downloads the `.conf` files from a specified GitHub repository URL.
+2. **Creates Backup**:  
+   - Automatically backs up existing configs to `/etc/fail2ban/backup-<timestamp>`.  
+   - No prompts — backups always run.
 
-3.  **Prompts for Overwrite**: If a configuration file already exists on the server, the script prompts you to confirm if you want to overwrite it.
+3. **Downloads Files**:  
+   - Fetches profile-specific filters/jails from GitHub.  
+   - Prompts before overwriting files (unless `--yes` is used).
 
-4.  **Sets Permissions**: After successfully downloading each file, it sets the correct file permissions (`644` for filters/actions and `640` for jails).
+4. **Injects Cloudflare Credentials**:  
+   - Replaces `{{ZONE_ID}}` and `{{API_TOKEN}}` placeholders in jail files.  
+   - **No manual edits required**.
 
-5.  **Provides Post-Deployment Instructions**: After all files are downloaded, it reminds you to:
-
-    * Update the Cloudflare Zone IDs and API tokens in the jail files.
-
-    * Run `fail2ban-client -d` to check the syntax of the new configurations.
-
-    * Restart the `fail2ban` service with `sudo systemctl restart fail2ban`.
-
-### Automating the License
-
-To automate the download of a license, you can add a simple line to your `deploy.sh` script, which will download a `LICENSE` file from your repository and place it in the current directory.
-
-```bash
-# Add this line to your deploy.sh script
-download_file "LICENSE" "$REPO_BASE/LICENSE"
-```
+5. **Finalizes Deployment**:  
+   - Sets file permissions (`640` for jails, `644` for filters/actions).  
+   - Prints explicit commands to restart Fail2Ban.
 
 ## Configuration
 
 ### Prerequisites
 
-1.  **Fail2Ban**: Must be installed on your server.
+1. **Fail2Ban**: Installed and running. The script will fail if not detected.  
+2. **Cloudflare API Token**:  
+   - Requires `Zone > Firewall` permissions.  
+   - Must be provided via `--api-token`.
+3. **CloudFlare Zone ID**
+    - Must be provided via `--zone-id`.
+4. **Profile Selection**:  
+   - Use `enfant` for `enfantterrible.com.ar`.  
+   - Use `posidonia` for `revistaposidonia.com`.  
 
-2.  **`wp-fail2ban` plugin**: Recommended for WordPress websites to log authentication attempts to `auth.log`, allowing for more granular filtering.
-
-3.  **Cloudflare API Token**: You need a Cloudflare API token with **Zone > Firewall** permissions.
+> **Critical Change**:  
+> The script **no longer uses placeholder values**. Cloudflare credentials must be passed via CLI arguments.
 
 ### Manual Setup
 
@@ -95,9 +110,9 @@ download_file "LICENSE" "$REPO_BASE/LICENSE"
 
 2.  Update the `cloudflare-zone.conf` file with your specific Cloudflare zone ID and API token.
 
-    * Replace `YOUR_SITE2_ZONE_ID` with your Cloudflare Zone ID.
+    * Replace `{{ZONE_ID}}` with your Cloudflare Zone ID.
 
-    * Replace `YOUR_SITE2_API_TOKEN` with your Cloudflare API token.
+    * Replace `{{API_TOKEN}}` with your Cloudflare API token.
 
     * **Note**: This is also referenced in the `jail.d` files, so ensure consistency.
 
@@ -105,10 +120,19 @@ download_file "LICENSE" "$REPO_BASE/LICENSE"
 
 4.  Disable the global Fail2Ban WordPress rules by setting `enabled = false` in `/etc/fail2ban/jail.local` or similar global configuration files to avoid conflicts.
 
-5.  Restart the Fail2Ban service to apply the new configuration.
+5. Check for syntax errors before applying the new configuration:
 
 ```bash
+sudo fail2ban-client -d
+```  
+
+7.  Restart the Fail2Ban service to apply the new configuration.
+
+```bash
+# Common
 sudo systemctl restart fail2ban
+# Gridpane specific
+sudo services fail2ban restart
 ```
 
 ## Jails Overview
