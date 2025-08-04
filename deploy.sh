@@ -120,6 +120,9 @@ esac
 
 # === Download Common Files ===
 echo "Downloading common files..."
+download_file "/etc/fail2ban/filter.d/wordpress-wp-login.conf" "$REPO_BASE/filter.d/wordpress-wp-login.conf" "644"
+download_file "/etc/fail2ban/filter.d/wordpress-xmlrpc.conf" "$REPO_BASE/filter.d/wordpress-xmlrpc.conf" "644"
+download_file "/etc/fail2ban/filter.d/nginx-probing.conf" "$REPO_BASE/filter.d/nginx-probing.conf" "644"
 download_file "/etc/fail2ban/action.d/cloudflare-zone.conf" "$REPO_BASE/action.d/cloudflare-zone.conf" "644"
 
 # === Replace Placeholders ===
