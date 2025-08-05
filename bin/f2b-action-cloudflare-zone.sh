@@ -104,23 +104,39 @@ update_cf_rule() {
     '{action: $action, expression: $expr, description: $desc, enabled: $enabled}')
 
     # Run the curl PATCH in background, redirect output to logfile
-  (
-    log "[Background] Sending PATCH request to Cloudflare API"
-    local response
-    response=$(curl -fsS -X PATCH "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/rulesets/${ruleset_id}/rules/${rule_id}" \
-      -H "Authorization: Bearer ${CF_API_TOKEN}" \
-      -H "Content-Type: application/json" \
-      --data-binary "$payload")
+  update_cf_rule() {
+  local expr="$1"
+  local ruleset_id="$2"
+  local rule_id="$3"
 
-    log "[Background] CF response: $response"
+  log "Updating Cloudflare rule ID $rule_id with expression: $expr"
 
-    if echo "$response" | jq -e '.success' >/dev/null; then
-      log "[Background] Rule updated successfully."
-    else
-      log "[Background] ERROR: CF update failed:"
-      echo "$response" | jq '.errors // .messages // .' | tee -a "$LOGFILE" >&2
-    fi
-  ) & disown
+  local payload
+  payload=$(jq -n \
+    --arg action "block" \
+    --arg expr "$expr" \
+    --arg desc "$CF_RULE_NAME" \
+    --argjson enabled true \
+    '{action: $action, expression: $expr, description: $desc, enabled: $enabled}')
+
+  {
+      echo "$(date '+%Y-%m-%d %H:%M:%S') [f2b-cloudflare-zone] [Background] Sending PATCH request to Cloudflare API"
+      local response
+      response=$(curl -fsS -X PATCH "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/rulesets/${ruleset_id}/rules/${rule_id}" \
+        -H "Authorization: Bearer ${CF_API_TOKEN}" \
+        -H "Content-Type: application/json" \
+        --data-binary "$payload")
+
+      echo "$(date '+%Y-%m-%d %H:%M:%S') [f2b-cloudflare-zone] [Background] CF response: $response"
+
+      if echo "$response" | jq -e '.success' >/dev/null; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [f2b-cloudflare-zone] [Background] Rule updated successfully."
+      else
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [f2b-cloudflare-zone] [Background] ERROR: CF update failed:"
+        echo "$response" | jq '.errors // .messages // .'
+      fi
+    } >>"$LOGFILE" 2>&1 &
+  }
 }
 
 case "$CMD" in
