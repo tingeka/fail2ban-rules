@@ -95,7 +95,6 @@ update_cf_rule() {
   local rule_id="$3"
 
   log "Updating Cloudflare rule ID $rule_id with expression: $expr"
-
   local payload
   payload=$(jq -n \
     --arg action "block" \
@@ -104,14 +103,19 @@ update_cf_rule() {
     --argjson enabled true \
     '{action: $action, expression: $expr, description: $desc, enabled: $enabled}')
 
+  log "Payload: $payload"
+
+  log "Sending PATCH request to Cloudflare API"
+  
   local response
   response=$(curl -fsS -X PATCH "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/rulesets/${ruleset_id}/rules/${rule_id}" \
     -H "Authorization: Bearer ${CF_API_TOKEN}" \
     -H "Content-Type: application/json" \
     --data-binary "$payload")
-
+  
+  log "CF response: $response"
+  
   if echo "$response" | jq -e '.success' >/dev/null; then
-    echo "f2b-action-cloudflare-zone: Rule updated successfully." >&2
     log "Rule updated successfully."
   else
     log "ERROR: CF update failed:"
