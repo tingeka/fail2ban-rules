@@ -1,5 +1,7 @@
 #!/bin/bash
 
+command -v fail2ban-client >/dev/null || { echo "fail2ban is not installed"; exit 1; }
+
 set -u
 
 # === Setup Logging ===
@@ -82,6 +84,8 @@ download_file() {
             chmod "$permissions" "$file_path" 2>/dev/null || true
             echo "✓ Set permissions to $permissions for $file_path"
         fi
+        chown root:root "$file_path" 2>/dev/null || true
+        echo "✓ Set ownership to root:root for $file_path"
     else
         echo "✗ Failed to download $file_path"
         return 1
@@ -101,18 +105,18 @@ echo -e "\nApplying profile: $PROFILE"
 
 case "$PROFILE" in
     "enfant")
+        JAIL_FILE="/etc/fail2ban/jail.d/enfant.conf"
+        download_file "/etc/fail2ban/jail.d/enfant.conf" "$REPO_BASE/jail.d/enfant.conf" "640"
         download_file "/etc/fail2ban/filter.d/et-wp-hard.conf" "$REPO_BASE/filter.d/et-wp-hard.conf" "644"
         download_file "/etc/fail2ban/filter.d/et-wp-soft.conf" "$REPO_BASE/filter.d/et-wp-soft.conf" "644"
         download_file "/etc/fail2ban/filter.d/et-wp-extra.conf" "$REPO_BASE/filter.d/et-wp-extra.conf" "644"
-        download_file "/etc/fail2ban/jail.d/enfant.conf" "$REPO_BASE/jail.d/enfant.conf" "640"
-        JAIL_FILE="/etc/fail2ban/jail.d/enfant.conf"
         ;;
     "posidonia")
+        JAIL_FILE="/etc/fail2ban/jail.d/posidonia.conf"
+        download_file "/etc/fail2ban/jail.d/posidonia.conf" "$REPO_BASE/jail.d/posidonia.conf" "640"
         download_file "/etc/fail2ban/filter.d/rp-wp-hard.conf" "$REPO_BASE/filter.d/rp-wp-hard.conf" "644"
         download_file "/etc/fail2ban/filter.d/rp-wp-soft.conf" "$REPO_BASE/filter.d/rp-wp-soft.conf" "644"
         download_file "/etc/fail2ban/filter.d/rp-wp-extra.conf" "$REPO_BASE/filter.d/rp-wp-extra.conf" "644"
-        download_file "/etc/fail2ban/jail.d/posidonia.conf" "$REPO_BASE/jail.d/posidonia.conf" "640"
-        JAIL_FILE="/etc/fail2ban/jail.d/posidonia.conf"
         ;;
     *)
         echo "✗ Error: Unknown profile '$PROFILE'"
@@ -122,6 +126,7 @@ esac
 
 # === Download Common Files ===
 echo "Downloading common files..."
+download_file "/usr/bin/f2b-action-cloudflare-zone" "$REPO_BASE/bin/f2b-action-cloudflare-zone" "755"
 download_file "/etc/fail2ban/filter.d/wordpress-wp-login.conf" "$REPO_BASE/filter.d/wordpress-wp-login.conf" "644"
 download_file "/etc/fail2ban/filter.d/wordpress-xmlrpc.conf" "$REPO_BASE/filter.d/wordpress-xmlrpc.conf" "644"
 download_file "/etc/fail2ban/filter.d/nginx-probing.conf" "$REPO_BASE/filter.d/nginx-probing.conf" "644"

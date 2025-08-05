@@ -43,7 +43,7 @@ curl -s https://raw.githubusercontent.com/tingeka/fail2ban-rules/main/deploy.sh 
   --profile <enfant|posidonia> \
   --zone-id <CLOUDFLARE_ZONE_ID> \
   --api-token <CLOUDFLARE_API_TOKEN> \
-  --cf-rule-name <CLOUDFLARE_RULE_NAME> \
+  --rule-name <CLOUDFLARE_RULE_NAME> \
   [--yes]
 ```
 
@@ -54,7 +54,7 @@ wget -qO- https://raw.githubusercontent.com/tingeka/fail2ban-rules/main/deploy.s
   --profile <enfant|posidonia> \
   --zone-id <CLOUDFLARE_ZONE_ID> \
   --api-token <CLOUDFLARE_API_TOKEN> \
-  --cf-rule-name <CLOUDFLARE_RULE_NAME> \
+  --rule-name <CLOUDFLARE_RULE_NAME> \
   [--yes]
 ```
 
@@ -62,7 +62,7 @@ wget -qO- https://raw.githubusercontent.com/tingeka/fail2ban-rules/main/deploy.s
 > - The `-s` flag tells `bash` to read commands from standard input.
 > - The `--` flag marks the end of command-line options. This is a more explicit and secure way to execute the piped script.
 > - The `--profile` flag is mandatory.
-> - The `--zone-id`, `--api-token`, and `--cf-rule-name` flags are now required.
+> - The `--zone-id`, `--api-token`, and `--rule-name` flags are now required.
 > - The `--yes` flag skips confirmation prompts.
 
 ### Script Functionality
