@@ -103,24 +103,24 @@ update_cf_rule() {
     --argjson enabled true \
     '{action: $action, expression: $expr, description: $desc, enabled: $enabled}')
 
-  log "Payload: $payload"
+    # Run the curl PATCH in background, redirect output to logfile
+  (
+    log "[Background] Sending PATCH request to Cloudflare API"
+    local response
+    response=$(curl -fsS -X PATCH "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/rulesets/${ruleset_id}/rules/${rule_id}" \
+      -H "Authorization: Bearer ${CF_API_TOKEN}" \
+      -H "Content-Type: application/json" \
+      --data-binary "$payload")
 
-  log "Sending PATCH request to Cloudflare API"
-  
-  local response
-  response=$(curl -fsS -X PATCH "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/rulesets/${ruleset_id}/rules/${rule_id}" \
-    -H "Authorization: Bearer ${CF_API_TOKEN}" \
-    -H "Content-Type: application/json" \
-    --data-binary "$payload")
-  
-  log "CF response: $response"
-  
-  if echo "$response" | jq -e '.success' >/dev/null; then
-    log "Rule updated successfully."
-  else
-    log "ERROR: CF update failed:"
-    echo "$response" | jq '.errors // .messages // .' | tee -a "$LOGFILE" >&2
-  fi
+    log "[Background] CF response: $response"
+
+    if echo "$response" | jq -e '.success' >/dev/null; then
+      log "[Background] Rule updated successfully."
+    else
+      log "[Background] ERROR: CF update failed:"
+      echo "$response" | jq '.errors // .messages // .' | tee -a "$LOGFILE" >&2
+    fi
+  ) & disown
 }
 
 case "$CMD" in
