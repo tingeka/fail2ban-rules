@@ -1,11 +1,11 @@
 # Fail2Ban Cloudflare Integration
 
-This repository contains custom `fail2ban` configurations for two WordPress websites, `revistaposidonia.com` and `enfantterrible.com.ar`. The primary purpose of these configurations is to use **Fail2Ban** to detect malicious login attempts, XML-RPC attacks, and other probing activities and then automatically ban the offending IP addresses using the **Cloudflare Firewall API**.
+This repository contains custom `fail2ban` configurations for two WordPress websites. The primary purpose of these configurations is to use **Fail2Ban** to detect malicious login attempts, XML-RPC attacks, and other probing activities and then automatically ban the offending IP addresses using the **Cloudflare Rulesets API** to manage a dynamic ban list.
 
 ## Contents
 
 * **`jail.d/`**: Contains the main `fail2ban` jail configurations for each website.
-
+ 
     * `posidonia.conf`: Jails for `revistaposidonia.com`.
 
     * `enfant.conf`: Jails for `enfantterrible.com.ar`.
@@ -22,9 +22,9 @@ This repository contains custom `fail2ban` configurations for two WordPress webs
 
     * `nginx-probing.conf`: A custom filter to catch various bot probing attempts in the Nginx access logs.
 
-* **`action.d/`**: Contains the custom action to interact with the Cloudflare API.
+* **`action.d/`**: Contains the custom action to interact with the Cloudflare Rulesets API.
 
-    * `cloudflare-zone.conf`: Defines the `actionban` and `actionunban` commands that use `curl` to add and remove IP addresses from a Cloudflare Firewall rule.
+    * `cloudflare-zone.conf`: Defines the `actionstart`, `actionban`, and `actionunban` commands that use `curl` and `jq` to manage a single Cloudflare custom rule.
 
 ## Deployment
 
@@ -43,6 +43,7 @@ curl -s https://raw.githubusercontent.com/tingeka/fail2ban-rules/main/deploy.sh 
   --profile <enfant|posidonia> \
   --zone-id <CLOUDFLARE_ZONE_ID> \
   --api-token <CLOUDFLARE_API_TOKEN> \
+  --cf-rule-name <CLOUDFLARE_RULE_NAME> \
   [--yes]
 ```
 
@@ -53,6 +54,7 @@ wget -qO- https://raw.githubusercontent.com/tingeka/fail2ban-rules/main/deploy.s
   --profile <enfant|posidonia> \
   --zone-id <CLOUDFLARE_ZONE_ID> \
   --api-token <CLOUDFLARE_API_TOKEN> \
+  --cf-rule-name <CLOUDFLARE_RULE_NAME> \
   [--yes]
 ```
 
@@ -60,7 +62,7 @@ wget -qO- https://raw.githubusercontent.com/tingeka/fail2ban-rules/main/deploy.s
 > - The `-s` flag tells `bash` to read commands from standard input.
 > - The `--` flag marks the end of command-line options. This is a more explicit and secure way to execute the piped script.
 > - The `--profile` flag is mandatory.
-> - The `--zone-id` and `--api-token` flags must be valid Cloudflare credentials.
+> - The `--zone-id`, `--api-token`, and `--cf-rule-name` flags are now required.
 > - The `--yes` flag skips confirmation prompts.
 
 ### Script Functionality
@@ -80,7 +82,7 @@ The `deploy.sh` script performs these actions **in order**:
    - Prompts before overwriting files (unless `--yes` is used).
 
 4. **Injects Cloudflare Credentials**:  
-   - Replaces `{{ZONE_ID}}` and `{{API_TOKEN}}` placeholders in jail files.  
+   - Replaces `{{ZONE_ID}}`, `{{API_TOKEN}}`, and `{{RULE_NAME}}` placeholders in jail files.  
    - **No manual edits required**.
 
 5. **Finalizes Deployment**:  
@@ -113,6 +115,8 @@ The `deploy.sh` script performs these actions **in order**:
     * Replace `{{ZONE_ID}}` with your Cloudflare Zone ID.
 
     * Replace `{{API_TOKEN}}` with your Cloudflare API token.
+
+    * Replace `{{RULE_NAME}}` with your Cloudflare rule name. 
 
     * **Note**: This is also referenced in the `jail.d` files, so ensure consistency.
 
