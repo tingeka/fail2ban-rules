@@ -16,6 +16,7 @@ SKIP_PROMPT=false
 PROFILE=""
 ZONE_ID=""
 API_TOKEN=""
+RULE_NAME=""
 
 # === Argument Parsing ===
 while [[ $# -gt 0 ]]; do
@@ -36,6 +37,10 @@ while [[ $# -gt 0 ]]; do
             API_TOKEN="$2"
             shift 2
             ;;
+        --rule-name)
+            RULE_NAME="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             echo "Usage: $0 --profile <name> --zone-id <id> --api-token <token> [--yes]"
@@ -50,11 +55,8 @@ if [[ -z "$PROFILE" ]]; then
     exit 1
 fi
 
-if [[ -z "$ZONE_ID" || -z "$API_TOKEN" ]]; then
-    echo "✗ Error: --zone-id and --api-token are required with profile '$PROFILE'."
-    echo "→ You must either:"
-    echo "   1. Provide them via CLI: --zone-id ... --api-token ..."
-    echo "   2. Manually update the placeholders in: /etc/fail2ban/jail.d/${PROFILE}.conf"
+if [[ -z "$ZONE_ID" || -z "$API_TOKEN" || -z "$RULE_NAME" ]]; then
+    echo "✗ Error: --zone-id, --api-token, and --rule-name are required with profile '$PROFILE'."
     exit 1
 fi
 
@@ -130,7 +132,8 @@ if [[ -f "$JAIL_FILE" ]]; then
     echo "Injecting zone ID and token into $JAIL_FILE..."
     sed -i "s|{{ZONE_ID}}|$ZONE_ID|g" "$JAIL_FILE"
     sed -i "s|{{API_TOKEN}}|$API_TOKEN|g" "$JAIL_FILE"
-    echo "✓ Injected zone ID and API token"
+    sed -i "s|{{RULE_NAME}}|$RULE_NAME|g" "$JAIL_FILE"
+    echo "✓ Injected zone ID, API token, and rule name into $JAIL_FILE"
 else
     echo "✗ Jail file not found: $JAIL_FILE"
     exit 1
