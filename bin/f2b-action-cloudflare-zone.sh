@@ -123,22 +123,27 @@ case "$CMD" in
   start)
     log "Command: start"
     fetch_ruleset_id
+    get_rule_data
     ;;
 
   ban|unban)
     log "Command: $CMD"
     exec 200>"$LOCK_FILE"
     flock -x -w 10 200 || {
-      echo "f2b-action-cloudflare-zone: Could not acquire lock, exiting." >&2
       log "Could not acquire lock, exiting."
       exit 1
     }
 
-    fetch_ruleset_id
-    IFS=":" read -r RULESET_ID RULE_ID <<< "$(get_rule_data)"
+    if [[ ! -f "$RULESET_ID_FILE" || ! -f "$RULE_ID_FILE" ]]; then
+      log "Cache files missing, please run start command first."
+      exit 1
+    fi
+
+    RULESET_ID=$(<"$RULESET_ID_FILE")
+    RULE_ID=$(<"$RULE_ID_FILE")
     EXPR="$(build_ip_expression)"
     update_cf_rule "$EXPR" "$RULESET_ID" "$RULE_ID"
-    ;;
+  ;;
 
   stop)
     log "Command: stop - cleaning up"
