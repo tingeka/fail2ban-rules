@@ -7,25 +7,38 @@ CF_API_TOKEN="${3:-}"
 CF_RULE_NAME="${4:-}"
 JAIL_NAME="${5:-}"
 
+LOGFILE="/var/log/fail2ban-cloudflare-zone.log"
+
 WORK_DIR="/var/run/fail2ban/cloudflare-zone"
 RULESET_ID_FILE="${WORK_DIR}/cloudflare-zone-ruleset-id.txt"
 LOCK_FILE="${WORK_DIR}/cloudflare-zone-lock"
 
 mkdir -p "$WORK_DIR"
 
+# Logging function
+log() {
+  local msg="$*"
+  echo "$(date '+%Y-%m-%d %H:%M:%S') [f2b-cloudflare-zone] $msg" | tee -a "$LOGFILE" >&2
+}
+
 fetch_ruleset_id() {
   if [[ ! -f "$RULESET_ID_FILE" ]]; then
     local id
+    log "Fetching ruleset ID from Cloudflare API"
     id=$(curl -fsS -X GET "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/rulesets/phases/http_request_firewall_custom/entrypoint" \
       -H "Authorization: Bearer ${CF_API_TOKEN}" | jq -r '.result.id')
 
     [[ -z "$id" ]] && {
       echo "f2b-cloudflare-zones: Unable to fetch ruleset ID" >&2
+      log "ERROR: Unable to fetch ruleset ID"
       exit 1
     }
 
     echo "$id" > "$RULESET_ID_FILE"
     echo "f2b-cloudflare-zones: Cached ruleset ID: $id" >&2
+    log "Cached ruleset ID: $id"
+  else
+    log "Using cached ruleset ID from $RULESET_ID_FILE"
   fi
 }
 
@@ -33,11 +46,13 @@ get_rule_data() {
   local ruleset_id rule_json rule_id
   ruleset_id=$(<"$RULESET_ID_FILE")
 
+  log "Fetching rule data for rule name '$CF_RULE_NAME'"
   rule_json=$(curl -fsS -X GET "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/rulesets/${ruleset_id}" \
     -H "Authorization: Bearer ${CF_API_TOKEN}" | jq --arg name "$CF_RULE_NAME" '.result.rules[] | select(.description == $name)')
 
   [[ -z "$rule_json" ]] && {
     echo "f2b-cloudflare-zones: Rule '${CF_RULE_NAME}' not found" >&2
+    log "ERROR: Rule '${CF_RULE_NAME}' not found"
     exit 1
   }
 
@@ -49,6 +64,8 @@ build_ip_expression() {
   local ip_list expr
   ip_list=$(fail2ban-client status "$JAIL_NAME" | awk -F':[[:space:]]+' '/Banned IP list/ { print $2 }' || true)
 
+  log "Building IP expression from banned IP list: $ip_list"
+  
   echo "$ip_list" \
     | tr ' ' '\n' \
     | grep -E '(^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$|^[0-9a-fA-F:]+$)' \
@@ -61,6 +78,8 @@ update_cf_rule() {
   local expr="$1"
   local ruleset_id="$2"
   local rule_id="$3"
+
+  log "Updating Cloudflare rule ID $rule_id with expression: $expr"
 
   local payload
   payload=$(jq -n \
@@ -78,20 +97,27 @@ update_cf_rule() {
 
   if echo "$response" | jq -e '.success' >/dev/null; then
     echo "f2b-cloudflare-zones: Rule updated successfully." >&2
+    log "Rule updated successfully."
   else
-    echo "f2b-cloudflare-zones: CF update failed:" >&2
-    echo "$response" | jq '.errors // .messages // .' >&2
+    log "ERROR: CF update failed:"
+    echo "$response" | jq '.errors // .messages // .' | tee -a "$LOGFILE" >&2
   fi
 }
 
 case "$CMD" in
   start)
+    log "Command: start"
     fetch_ruleset_id
     ;;
 
   ban|unban)
+    log "Command: $CMD"
     exec 200>"$LOCK_FILE"
-    flock -x 200
+    flock -x -w 10 200 || {
+      echo "f2b-cloudflare-zones: Could not acquire lock, exiting." >&2
+      log "Could not acquire lock, exiting."
+      exit 1
+    }
 
     fetch_ruleset_id
     IFS=":" read -r RULESET_ID RULE_ID <<< "$(get_rule_data)"
@@ -100,6 +126,7 @@ case "$CMD" in
     ;;
 
   stop)
+    log "Command: stop - cleaning up"
     rm -f "$RULESET_ID_FILE" "$LOCK_FILE"
     ;;
 
