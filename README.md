@@ -90,7 +90,7 @@ ip.src in {1.2.3.4 5.6.7.8}
 
 1. **Fail2Ban**: Installed and running. The script will fail if not detected.  
 2. **Cloudflare API Token**:  
-   - Requires `Zone > Firewall` permissions.  
+   - Requires `Zone > Zone WAF: Edit` and `Zone > Firewall Services: Edit` permissions.  
    - Must be provided via `--api-token`.
 3. **CloudFlare Zone ID**
     - Must be provided via `--zone-id`.
