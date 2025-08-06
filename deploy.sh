@@ -126,7 +126,7 @@ esac
 
 # === Download Common Files ===
 echo "Downloading common files..."
-download_file "/usr/bin/f2b-action-cloudflare-zone.sh" "$REPO_BASE/bin/f2b-action-cloudflare-zone.sh" "755"
+download_file "/usr/local/bin/f2b-action-cloudflare-zone.sh" "$REPO_BASE/bin/f2b-action-cloudflare-zone.sh" "755"
 download_file "/etc/fail2ban/filter.d/wordpress-wp-login.conf" "$REPO_BASE/filter.d/wordpress-wp-login.conf" "644"
 download_file "/etc/fail2ban/filter.d/wordpress-xmlrpc.conf" "$REPO_BASE/filter.d/wordpress-xmlrpc.conf" "644"
 download_file "/etc/fail2ban/filter.d/nginx-probing.conf" "$REPO_BASE/filter.d/nginx-probing.conf" "644"
