@@ -1,159 +1,168 @@
 #!/bin/bash
+# deploy.sh - Clone repo and deploy Fail2Ban configs with summary
+# Supports --dry-run, --debug, and --force
 
-command -v fail2ban-client >/dev/null || { echo "fail2ban is not installed"; exit 1; }
+set -euo pipefail
 
-set -u
+# ===== Configuration =====
+DEBUG=${DEBUG:-false}
+DRY_RUN=false
+FORCE=false
 
-# === Setup Logging ===
-LOG_FILE="/var/log/fail2ban-deploy.log"
-exec > >(tee -a "$LOG_FILE") 2>&1
-echo "=== Fail2Ban deployment started at $(date) ==="
+REPO_URL="${REPO_URL:-https://github.com/tingeka/fail2ban-rules.git}"
+TMP_DIR="${TMP_DIR:-/tmp/fail2ban-rules}"
+FAIL2BAN_ACTION_DIR="${FAIL2BAN_ACTION_DIR:-/etc/fail2ban/action.d}"
+FAIL2BAN_FILTER_DIR="${FAIL2BAN_FILTER_DIR:-/etc/fail2ban/filter.d}"
+FAIL2BAN_JAIL_DIR="${FAIL2BAN_JAIL_DIR:-/etc/fail2ban/jail.d}"
 
-# === Constants ===
-REPO_BASE="https://raw.githubusercontent.com/tingeka/fail2ban-rules/main"
-BACKUP_DIR="/etc/fail2ban/backup-$(date +%Y%m%d-%H%M%S)"
+# Track updated files
+UPDATED_FILES=()
 
-# === Defaults ===
-SKIP_PROMPT=false
-PROFILE=""
-ZONE_ID=""
-API_TOKEN=""
-RULE_NAME=""
+# ===== Usage =====
+usage() {
+    cat <<EOF
+Usage: $0 [--dry-run] [--debug] [--force] [--help]
 
-# === Argument Parsing ===
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --yes|-y)
-            SKIP_PROMPT=true
-            shift
-            ;;
-        --profile)
-            PROFILE="$2"
-            shift 2
-            ;;
-        --zone-id)
-            ZONE_ID="$2"
-            shift 2
-            ;;
-        --api-token)
-            API_TOKEN="$2"
-            shift 2
-            ;;
-        --rule-name)
-            RULE_NAME="$2"
-            shift 2
-            ;;
-        *)
-            echo "Unknown option: $1"
-            echo "Usage: $0 --profile <name> --zone-id <id> --api-token <token> [--yes]"
-            exit 1
-            ;;
-    esac
-done
+Options:
+  --dry-run   Show actions without making changes
+  --debug     Enable bash debug mode
+  --force     Skip all confirmation prompts
+  --help      Show this message
+EOF
+}
 
-# === Validation ===
-if [[ -z "$PROFILE" ]]; then
-    echo "✗ Error: --profile is required."
-    exit 1
-fi
+# ===== Parse arguments =====
+parse_args() {
+    for arg in "$@"; do
+        case "$arg" in
+            --dry-run) DRY_RUN=true ;;
+            --debug) DEBUG=true ;;
+            --force) FORCE=true ;;
+            --help) usage; exit 0 ;;
+            *) echo "Unknown option: $arg"; usage; exit 1 ;;
+        esac
+    done
+    $DEBUG && set -x
+}
 
-if [[ -z "$ZONE_ID" || -z "$API_TOKEN" || -z "$RULE_NAME" ]]; then
-    echo "✗ Error: --zone-id, --api-token, and --rule-name are required with profile '$PROFILE'."
-    exit 1
-fi
-
-# === Function: Download with optional prompt ===
-download_file() {
-    local file_path=$1
-    local repo_url=$2
-    local permissions=$3
-
-    if [ -f "$file_path" ] && [ "$SKIP_PROMPT" = false ]; then
-        read -p "File '$file_path' already exists. Overwrite? (y/n): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            echo "Skipping '$file_path'..."
-            return 0
-        fi
-    fi
-
-    echo "Downloading $file_path..."
-    if curl -fsSL --retry 3 --retry-connrefused "$repo_url" -o "$file_path"; then
-        echo "✓ Downloaded $file_path"
-        if [ -n "$permissions" ]; then
-            chmod "$permissions" "$file_path" 2>/dev/null || true
-            echo "✓ Set permissions to $permissions for $file_path"
-        fi
-        chown root:root "$file_path" 2>/dev/null || true
-        echo "✓ Set ownership to root:root for $file_path"
+# ===== Logging & helper =====
+run_cmd() {
+    local ts
+    ts=$(date +"%Y-%m-%d %H:%M:%S")
+    if $DRY_RUN; then
+        echo "[$ts][DRY-RUN] $*"
     else
-        echo "✗ Failed to download $file_path"
-        return 1
+        echo "[$ts][RUN] $*"
+        "$@"
     fi
 }
 
-# === Backup Existing Config ===
-echo "Creating backup..."
-mkdir -p "$BACKUP_DIR"
-cp -r /etc/fail2ban/jail.d/* "$BACKUP_DIR/" 2>/dev/null || true
-cp -r /etc/fail2ban/filter.d/* "$BACKUP_DIR/" 2>/dev/null || true
-cp -r /etc/fail2ban/action.d/* "$BACKUP_DIR/" 2>/dev/null || true
-echo "✓ Backup created at: $BACKUP_DIR"
+confirm() {
+    $FORCE && return 0
+    read -r -p "$1 [y/N]: " response
+    case "$response" in
+        [yY][eE][sS]|[yY]) true ;;
+        *) false ;;
+    esac
+}
 
-# === Download Profile-Specific Files ===
-echo -e "\nApplying profile: $PROFILE"
+copy_conf() {
+    local src="$1"
+    local dst_dir="$2"
+    local dst="$dst_dir/$(basename "$src")"
 
-case "$PROFILE" in
-    "enfant")
-        JAIL_FILE="/etc/fail2ban/jail.d/enfant.conf"
-        download_file "/etc/fail2ban/jail.d/enfant.conf" "$REPO_BASE/jail.d/enfant.conf" "640"
-        download_file "/etc/fail2ban/filter.d/et-wp-hard.conf" "$REPO_BASE/filter.d/et-wp-hard.conf" "644"
-        download_file "/etc/fail2ban/filter.d/et-wp-soft.conf" "$REPO_BASE/filter.d/et-wp-soft.conf" "644"
-        download_file "/etc/fail2ban/filter.d/et-wp-extra.conf" "$REPO_BASE/filter.d/et-wp-extra.conf" "644"
-        ;;
-    "posidonia")
-        JAIL_FILE="/etc/fail2ban/jail.d/posidonia.conf"
-        download_file "/etc/fail2ban/jail.d/posidonia.conf" "$REPO_BASE/jail.d/posidonia.conf" "640"
-        download_file "/etc/fail2ban/filter.d/rp-wp-hard.conf" "$REPO_BASE/filter.d/rp-wp-hard.conf" "644"
-        download_file "/etc/fail2ban/filter.d/rp-wp-soft.conf" "$REPO_BASE/filter.d/rp-wp-soft.conf" "644"
-        download_file "/etc/fail2ban/filter.d/rp-wp-extra.conf" "$REPO_BASE/filter.d/rp-wp-extra.conf" "644"
-        ;;
-    *)
-        echo "✗ Error: Unknown profile '$PROFILE'"
-        exit 1
-        ;;
-esac
+    [[ -f "$src" ]] || { echo "Missing file $src"; return; }
 
-# === Download Common Files ===
-echo "Downloading common files..."
-download_file "/usr/local/bin/f2b-action-cloudflare-zone.sh" "$REPO_BASE/bin/f2b-action-cloudflare-zone.sh" "755"
-download_file "/etc/fail2ban/filter.d/wordpress-wp-login.conf" "$REPO_BASE/filter.d/wordpress-wp-login.conf" "644"
-download_file "/etc/fail2ban/filter.d/wordpress-xmlrpc.conf" "$REPO_BASE/filter.d/wordpress-xmlrpc.conf" "644"
-download_file "/etc/fail2ban/filter.d/nginx-probing.conf" "$REPO_BASE/filter.d/nginx-probing.conf" "644"
-download_file "/etc/fail2ban/action.d/cloudflare-zone.conf" "$REPO_BASE/action.d/cloudflare-zone.conf" "644"
+    if [[ -e "$dst" && $FORCE == false ]]; then
+        confirm "Overwrite $dst?" || { echo "Skipping $dst"; return; }
+    fi
 
-# === Replace Placeholders ===
-if [[ -f "$JAIL_FILE" ]]; then
-    echo "Injecting zone ID and token into $JAIL_FILE..."
-    sed -i "s|{{ZONE_ID}}|$ZONE_ID|g" "$JAIL_FILE"
-    sed -i "s|{{API_TOKEN}}|$API_TOKEN|g" "$JAIL_FILE"
-    sed -i "s|{{RULE_NAME}}|$RULE_NAME|g" "$JAIL_FILE"
-    echo "✓ Injected zone ID, API token, and rule name into $JAIL_FILE"
-else
-    echo "✗ Jail file not found: $JAIL_FILE"
-    exit 1
-fi
+    run_cmd cp -v "$src" "$dst"
+    run_cmd chown root:root "$dst"
+    run_cmd chmod 0644 "$dst"
 
-# === Final Instructions ===
-echo -e "\n✓ Deployment complete for profile '$PROFILE'"
-echo "▶ Zone ID: $ZONE_ID"
-echo "▶ API Token: [REDACTED]"
-echo
-echo "⚠ You may want to verify the config:"
-echo "   fail2ban-client -d"
-echo
-echo "▶ To apply changes:"
-echo "   systemctl restart fail2ban"
-echo
-echo "▶ To verify status:"
-echo "   systemctl status fail2ban"
+    # Track updated file
+    UPDATED_FILES+=("$dst")
+}
+
+deploy_directory() {
+    local src_dir="$1"
+    local dst_dir="$2"
+    local desc="$3"
+
+    if [[ ! -d "$src_dir" ]]; then
+        echo "Directory $src_dir not found. Skipping $desc."
+        return
+    fi
+
+    if confirm "Deploy $desc to $dst_dir?"; then
+        for file in "$src_dir"/*.conf; do
+            [[ -f "$file" ]] || continue
+            copy_conf "$file" "$dst_dir"
+        done
+    else
+        echo "Skipping $desc deployment."
+    fi
+}
+
+cleanup_tmp() {
+    if [[ -d "$TMP_DIR" ]]; then
+        if $DRY_RUN; then
+            echo "[DRY-RUN] Would remove temporary directory $TMP_DIR"
+        else
+            if confirm "Remove temporary directory $TMP_DIR?"; then
+                run_cmd rm -rf "$TMP_DIR"
+            else
+                echo "Temporary directory retained at $TMP_DIR."
+            fi
+        fi
+    fi
+}
+
+reload_fail2ban() {
+    if ! command -v fail2ban-client >/dev/null 2>&1; then
+        echo "fail2ban-client not found, skipping reload."
+        return
+    fi
+
+    if (( ${#UPDATED_FILES[@]} > 0 )); then
+        echo
+        echo "Updated files:"
+        for f in "${UPDATED_FILES[@]}"; do
+            echo "  $f"
+        done
+        echo
+        if confirm "Reload Fail2Ban to apply these changes?"; then
+            run_cmd fail2ban-client reload
+        else
+            echo "Skipping Fail2Ban reload."
+        fi
+    else
+        echo "No files were updated. Skipping Fail2Ban reload."
+    fi
+}
+
+main() {
+    parse_args "$@"
+
+    # Clone repo
+    if [[ -d "$TMP_DIR" ]]; then
+        confirm "Temporary directory $TMP_DIR exists. Remove and continue?" && run_cmd rm -rf "$TMP_DIR"
+    fi
+    run_cmd git clone "$REPO_URL" "$TMP_DIR"
+
+    # Deploy configs
+    deploy_directory "$TMP_DIR/action.d" "$FAIL2BAN_ACTION_DIR" "Fail2Ban actions"
+    deploy_directory "$TMP_DIR/filter.d" "$FAIL2BAN_FILTER_DIR" "Fail2Ban filters"
+    deploy_directory "$TMP_DIR/jail.d" "$FAIL2BAN_JAIL_DIR" "Fail2Ban jails"
+
+    # Reload Fail2Ban interactively
+    reload_fail2ban
+
+    # Cleanup
+    cleanup_tmp
+
+    echo "Deployment finished."
+}
+
+[[ "${BASH_SOURCE[0]}" == "${0}" ]] && main "$@"
