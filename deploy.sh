@@ -1,11 +1,11 @@
 #!/bin/bash
-# deploy.sh - Clone repo and deploy Fail2Ban configs with summary
-# Supports --dry-run, --debug, and --force
+# deploy.sh - Clone repo and deploy Fail2Ban configs
+# Fully BATS-testable with --dry-run, --force, and --debug
 
 set -euo pipefail
 
 # ===== Configuration =====
-DEBUG=${DEBUG:-false}
+DEBUG=false
 DRY_RUN=false
 FORCE=false
 
@@ -15,7 +15,6 @@ FAIL2BAN_ACTION_DIR="${FAIL2BAN_ACTION_DIR:-/etc/fail2ban/action.d}"
 FAIL2BAN_FILTER_DIR="${FAIL2BAN_FILTER_DIR:-/etc/fail2ban/filter.d}"
 FAIL2BAN_JAIL_DIR="${FAIL2BAN_JAIL_DIR:-/etc/fail2ban/jail.d}"
 
-# Track updated files
 UPDATED_FILES=()
 
 # ===== Usage =====
@@ -31,21 +30,24 @@ Options:
 EOF
 }
 
-# ===== Parse arguments =====
+# ===== Argument Parsing =====
+# ===== Argument Parsing =====
 parse_args() {
     for arg in "$@"; do
         case "$arg" in
             --dry-run) DRY_RUN=true ;;
             --debug) DEBUG=true ;;
             --force) FORCE=true ;;
-            --help) usage; exit 0 ;;
-            *) echo "Unknown option: $arg"; usage; exit 1 ;;
+            --help) usage; return 0 ;;
+            *) echo "Unknown option: $arg"; usage; return 1 ;;
         esac
     done
-    $DEBUG && set -x
+    if $DEBUG; then
+        set -x
+    fi
 }
 
-# ===== Logging & helper =====
+# ===== Helpers =====
 run_cmd() {
     local ts
     ts=$(date +"%Y-%m-%d %H:%M:%S")
@@ -69,19 +71,15 @@ confirm() {
 copy_conf() {
     local src="$1"
     local dst_dir="$2"
-    local dst="$dst_dir/$(basename "$src")"
-
-    [[ -f "$src" ]] || { echo "Missing file $src"; return; }
-
-    if [[ -e "$dst" && $FORCE == false ]]; then
-        confirm "Overwrite $dst?" || { echo "Skipping $dst"; return; }
+    local dst
+    dst="$dst_dir/$(basename "$src")"
+    [[ -f "$src" ]] || { echo "Missing file $src"; return 1; }
+    if [[ -e "$dst" ]] && ! $FORCE; then
+        confirm "Overwrite $dst?" || { echo "Skipping $dst"; return 0; }
     fi
-
     run_cmd cp -v "$src" "$dst"
     run_cmd chown root:root "$dst"
     run_cmd chmod 0644 "$dst"
-
-    # Track updated file
     UPDATED_FILES+=("$dst")
 }
 
@@ -142,19 +140,43 @@ reload_fail2ban() {
     fi
 }
 
-main() {
-    parse_args "$@"
-
-    # Clone repo
-    if [[ -d "$TMP_DIR" ]]; then
-        confirm "Temporary directory $TMP_DIR exists. Remove and continue?" && run_cmd rm -rf "$TMP_DIR"
-    fi
-    run_cmd git clone "$REPO_URL" "$TMP_DIR"
-
-    # Deploy configs
+# ===== Deployment Steps =====
+deploy_all() {
     deploy_directory "$TMP_DIR/action.d" "$FAIL2BAN_ACTION_DIR" "Fail2Ban actions"
     deploy_directory "$TMP_DIR/filter.d" "$FAIL2BAN_FILTER_DIR" "Fail2Ban filters"
     deploy_directory "$TMP_DIR/jail.d" "$FAIL2BAN_JAIL_DIR" "Fail2Ban jails"
+}
+
+# ===== Clone repo =====
+clone_repo() {
+    if [[ -d "$TMP_DIR" ]]; then
+        if $DRY_RUN; then
+            echo "[DRY-RUN] Would remove existing temporary directory $TMP_DIR"
+        else
+            if confirm "Temporary directory $TMP_DIR exists. Remove and continue?"; then
+                run_cmd rm -rf "$TMP_DIR"
+            else
+                echo "Aborting deployment."
+                return 1
+            fi
+        fi
+    fi
+
+    if $DRY_RUN; then
+        echo "[DRY-RUN] Would clone repo $REPO_URL to $TMP_DIR"
+    else
+        run_cmd git clone "$REPO_URL" "$TMP_DIR"
+    fi
+}
+
+# ===== Main Flow =====
+main() {
+    parse_args "$@" || return 1
+
+    clone_repo || return 1
+
+    # Deploy
+    deploy_all
 
     # Reload Fail2Ban interactively
     reload_fail2ban
@@ -163,6 +185,10 @@ main() {
     cleanup_tmp
 
     echo "Deployment finished."
+    return 0
 }
 
-[[ "${BASH_SOURCE[0]}" == "${0}" ]] && main "$@"
+# ===== Execute only if script run directly =====
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
