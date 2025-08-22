@@ -1,0 +1,27 @@
+{
+  "name": "fail2ban-rules",
+  "version": "0.1.0",
+  "description": "This repository contains custom `fail2ban` configurations for two WordPress websites. The primary purpose of these configurations is to use **Fail2Ban** to detect malicious login attempts, XML-RPC attacks, and other probing activities and then automatically ban the offending IP addresses using the **Cloudflare Rulesets API** to manage a dynamic ban list.",
+  "main": "index.js",
+  "scripts": {
+    "test": "bats tests/**",
+    "lint": "shellcheck deploy.sh tests/*.bats",
+    "prepare": "husky"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tingeka/fail2ban-rules.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/tingeka/fail2ban-rules/issues"
+  },
+  "homepage": "https://github.com/tingeka/fail2ban-rules#readme",
+  "devDependencies": {
+    "bats": "^1.12.0",
+    "husky": "^9.1.7",
+    "shellcheck": "^4.1.0"
+  }
+}
